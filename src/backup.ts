@@ -228,8 +228,8 @@ export async function performBackup(
         }
     }
 
-    // 9. Generate info.txt with comprehensive metadata
-    showProgress("Generating info.txt...");
+    // 9. Generate info.md with comprehensive metadata
+    showProgress("Generating info.md...");
 
     const backupEndTime = Date.now();
     const backupDuration = (backupEndTime - backupStartTime) / 1000;
@@ -267,85 +267,88 @@ ${largestSaves.map(s => `  - ${s.name} (${formatBytes(s.size)})`).join("\n")}
     const totalFiles = stats.screenshotsCopied + stats.shaderConfigsCopied +
         stats.savesCopied + stats.xaeroCopied + stats.distantHorizonsCopied;
 
-    const infoContent = `
-╔══════════════════════════════════════════════════════════════╗
-║                        TOTEM BACKUP                          ║
-╚══════════════════════════════════════════════════════════════╝
+    const infoContent = `# 🗿 Totem Backup
 
-═══════════════════════════════════════════════════════════════
-  SYSTEM INFORMATION
-═══════════════════════════════════════════════════════════════
+> Generated on ${new Date().toLocaleString()}
 
-Minecraft Version:  ${mcInfo.version}
-Mod Loader:         ${mcInfo.loader}${mcInfo.loaderVersion !== "Unknown" ? ` (${mcInfo.loaderVersion})` : ""}
-Operating System:   ${getOSInfo()}
-Totem Version:      v1.0.0
+---
 
-═══════════════════════════════════════════════════════════════
-  BACKUP DETAILS
-═══════════════════════════════════════════════════════════════
+## 📋 System Information
 
-Backup Date:        ${new Date().toLocaleString()}
-Source Path:        ${mcPaths.root}
-Backup Duration:    ${formatDuration(backupDuration)}
-Total Backup Size:  ${formatBytes(backupSize)}
-Total Files Copied: ${totalFiles.toLocaleString()} files
+| Property | Value |
+|----------|-------|
+| Minecraft Version | ${mcInfo.version} |
+| Mod Loader | ${mcInfo.loader}${mcInfo.loaderVersion !== "Unknown" ? ` (${mcInfo.loaderVersion})` : ""} |
+| Operating System | ${getOSInfo()} |
+| Totem Version | v1.0.0 |
 
-═══════════════════════════════════════════════════════════════
-  CONTENTS
-═══════════════════════════════════════════════════════════════
+---
 
-Screenshots:        ${stats.screenshotsCopied} files
-Mods Listed:        ${stats.modsListed} mods (${formatBytes(modsSize)} total)
-Shaders Listed:     ${stats.shadersListed} shaders
-Shader Configs:     ${stats.shaderConfigsCopied} files
-Resource Packs:     ${stats.resourcepacksListed} packs
-Saves:              ${stats.savesCopied} files
-Xaero Maps:         ${stats.xaeroCopied} files
-Distant Horizons:   ${stats.distantHorizonsCopied} files
+## 📦 Backup Details
 
-═══════════════════════════════════════════════════════════════
-  MOD STATISTICS
-═══════════════════════════════════════════════════════════════
+| Property | Value |
+|----------|-------|
+| Source Path | \`${mcPaths.root}\` |
+| Backup Duration | ${formatDuration(backupDuration)} |
+| Total Backup Size | ${formatBytes(backupSize)} |
+| Total Files Copied | ${totalFiles.toLocaleString()} files |
 
-Total Mods:         ${stats.modsListed}
-Total Mod Size:     ${formatBytes(modsSize)}
-Largest Mods:
+---
+
+## 📁 Contents
+
+| Item | Count |
+|------|-------|
+| Screenshots | ${stats.screenshotsCopied} files |
+| Mods | ${stats.modsListed} mods (${formatBytes(modsSize)} total) |
+| Shaders | ${stats.shadersListed} shaders |
+| Shader Configs | ${stats.shaderConfigsCopied} files |
+| Resource Packs | ${stats.resourcepacksListed} packs |
+| Saves | ${stats.savesCopied} files |
+| Xaero Maps | ${stats.xaeroCopied} files |
+| Distant Horizons | ${stats.distantHorizonsCopied} files |
+
+---
+
+## 📊 Mod Statistics
+
+- **Total Mods:** ${stats.modsListed}
+- **Total Size:** ${formatBytes(modsSize)}
+- **Largest Mods:**
 ${largestModsStr}
 ${largestSavesStr}
-═══════════════════════════════════════════════════════════════
-  RESTORATION GUIDE
-═══════════════════════════════════════════════════════════════
+---
 
-To restore this backup:
+## 🔧 Restoration Guide
 
-1. Screenshots:
-   Copy the 'screenshots/' folder back to your minecraft folder
+### 1. Screenshots
+Copy the \`screenshots/\` folder back to your minecraft folder.
 
-2. Mods:
-   Re-download mods listed in 'mods.txt' from Modrinth or CurseForge
-   
-3. Shaders:
-   Re-download shaders listed in 'shaders.txt'
-   Copy 'shader_configs/' contents to your 'shaderpacks/' folder
+### 2. Mods
+Re-download mods listed in \`mods.txt\` from [Modrinth](https://modrinth.com) or [CurseForge](https://curseforge.com).
 
-4. Resource Packs:
-   Re-download packs listed in 'resourcepacks.txt'
+### 3. Shaders
+- Re-download shaders listed in \`shaders.txt\`
+- Copy \`shader_configs/\` contents to your \`shaderpacks/\` folder
 
-5. Options:
-   Copy 'options.txt' to your minecraft folder
+### 4. Resource Packs
+Re-download packs listed in \`resourcepacks.txt\`.
 
-6. Saves (if included):
-   Copy the 'saves/' folder back to your minecraft folder
+### 5. Options
+Copy \`options.txt\` to your minecraft folder.
 
-═══════════════════════════════════════════════════════════════
+### 6. Saves (if included)
+Copy the \`saves/\` folder back to your minecraft folder.
 
-${errors.length > 0 ? `⚠ ERRORS:\n${errors.map(e => `  - ${e}`).join("\n")}` : "✓ Backup completed successfully with no errors."}
+---
 
-Generated by Totem - Minecraft Backup Utility
-https://github.com/vaalley/totem
+${errors.length > 0 ? `## ⚠️ Errors\n\n${errors.map(e => `- ${e}`).join("\n")}` : "## ✅ Status\n\nBackup completed successfully with no errors."}
+
+---
+
+*Generated by [Totem](https://github.com/vaalley/totem) - Minecraft Backup Utility*
 `;
-    await writeFile(join(backupPath, "info.txt"), infoContent);
+    await writeFile(join(backupPath, "info.md"), infoContent);
 
     // 7. Zip if requested
     if (options.zipOutput) {

@@ -60,7 +60,7 @@ backup_2024-12-16_16-20/
 ├── xaero/                 # Xaero maps (optional)
 ├── distant_horizons.../   # DH data (optional)
 ├── options.txt            # Minecraft options
-└── info.txt               # Backup metadata
+└── info.md                # Backup metadata
 ```
 
 ## Development
@@ -82,7 +82,6 @@ bunx tsc --noEmit
 - **Language**: TypeScript
 - **TUI**: [@inquirer/prompts](https://www.npmjs.com/package/@inquirer/prompts)
 - **Styling**: [chalk](https://www.npmjs.com/package/chalk)
-- **Spinners**: [ora](https://www.npmjs.com/package/ora)
 - **Linting**: [oxlint](https://oxc.rs)
 
 ## License
