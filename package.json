@@ -7,13 +7,17 @@
     "start": "bun run index.ts",
     "build": "bun build index.ts --compile --outfile=totem.exe",
     "lint": "oxlint .",
-    "lint:fix": "oxlint --fix ."
+    "lint:fix": "oxlint --fix .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/bun": "latest",
     "@types/cli-progress": "^3.11.6",
-    "oxlint": "^1.33.0"
+    "oxlint": "^1.33.0",
+    "vitest": "^4.0.16"
   },
   "peerDependencies": {
     "typescript": "^5"

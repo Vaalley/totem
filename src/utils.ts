@@ -172,13 +172,14 @@ export async function copyDir(
 
 /** Read a file as text */
 export async function readFile(path: string): Promise<string> {
-    const file = Bun.file(path);
-    return await file.text();
+    const fs = await import("fs/promises");
+    return await fs.readFile(path, "utf-8");
 }
 
 /** Write text to a file */
 export async function writeFile(path: string, content: string): Promise<void> {
-    await Bun.write(path, content);
+    const fs = await import("fs/promises");
+    await fs.writeFile(path, content, "utf-8");
 }
 
 /** Get the base name of a path */
