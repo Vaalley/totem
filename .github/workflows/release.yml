@@ -1,61 +1,97 @@
-name: Build and Release
+name: Check and release
 
 on:
   push:
+    branches: [main]
     tags:
-      - 'v*'
+      - "v*"
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
+  verify:
+    name: Check and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check formatting
+        run: deno fmt --check
+      - name: Lint
+        run: deno lint
+      - name: Type-check
+        run: deno task check
+      - name: Run tests
+        run: deno task test
+
   build:
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}
+    needs: verify
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            target: windows
-            ext: .exe
-          - os: ubuntu-latest
-            target: linux
-            ext: ""
-          - os: macos-latest
-            target: macos
-            ext: ""
-
+          - platform: windows-x64
+            runner: windows-latest
+            output: totem-windows-x64.exe
+          - platform: linux-x64
+            runner: ubuntu-latest
+            output: totem-linux-x64
+          - platform: macos-x64
+            runner: macos-15-intel
+            output: totem-macos-x64
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
         with:
-          go-version: '1.23'
-
-      - name: Build executable
-        run: go build -ldflags="-s -w" -o totem-${{ matrix.target }}${{ matrix.ext }} .
-
-      - name: Upload artifact
+          deno-version: v2.x
+      - name: Build standalone binary
+        run: |
+          deno eval "await Deno.mkdir('dist', { recursive: true });"
+          deno compile --allow-read --allow-write --allow-env --allow-run --output "dist/${{ matrix.output }}" src/main.ts
+      - name: Archive POSIX binary
+        if: runner.os != 'Windows'
+        run: tar -czf "dist/${{ matrix.output }}.tar.gz" -C dist "${{ matrix.output }}"
+      - name: Upload Windows binary
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: totem-${{ matrix.target }}
-          path: totem-${{ matrix.target }}${{ matrix.ext }}
+          name: totem-${{ matrix.platform }}
+          path: dist/${{ matrix.output }}
+          if-no-files-found: error
+      - name: Upload POSIX binary
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: totem-${{ matrix.platform }}
+          path: dist/${{ matrix.output }}.tar.gz
+          if-no-files-found: error
 
   release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
     steps:
-      - name: Download all artifacts
+      - name: Download release binaries
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: release-binaries
+          pattern: totem-*
           merge-multiple: true
-
-      - name: List artifacts
-        run: ls -la artifacts/
-
-      - name: Create Release
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: release-binaries/*
           generate_release_notes: true
