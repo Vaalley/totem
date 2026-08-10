@@ -621,7 +621,9 @@ export async function performBackup(
       !summary.folderName ||
       summary.folderName === "." ||
       summary.folderName === ".." ||
-      /[\\/]/.test(summary.folderName)
+      (Deno.build.os === "windows"
+        ? /[\\/]/.test(summary.folderName)
+        : /\//.test(summary.folderName))
     ) {
       errors.push(`Unable to copy custom folder ${summary.label}: invalid folder name`);
       continue;

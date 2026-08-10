@@ -223,6 +223,10 @@ deno task test:watch
 - Read, write, recursive-copy, manifest, and ZIP failures are surfaced in the TUI result and
   recorded in `info.md`; metadata failures are surfaced in the TUI result and recorded in `info.md`
   when that file can be written. They are not silently converted into a successful backup.
+- ZIP output intentionally fails closed for ambiguous or non-portable names, including literal
+  backslashes and collisions after cross-platform case or trailing-dot normalization, rather than
+  silently renaming or corrupting them. Uncompressed folder output remains the faithful option for
+  unusual POSIX names; arbitrary filesystem names are not always ZIP-compatible.
 - The destination cannot be the source instance or a directory inside it. Totem rejects that
   selection before copying.
 - Totem never silently overwrites an existing output directory. It chooses a collision-safe name and
