@@ -101,7 +101,6 @@ jobs:
           cd release-binaries
           sha256sum $(ls | grep -v SHA256SUMS) > SHA256SUMS.txt
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-binaries/*
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" release-binaries/* --generate-notes
