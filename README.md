@@ -25,9 +25,9 @@ native release artifacts for Windows, Linux, and macOS:
 
 Each release also publishes `SHA256SUMS.txt` with checksums for every artifact. Other operating
 systems and CPU architectures may run the Deno source where Deno supports them, but are not current
-release artifacts. The usual instance locations are `%APPDATA%\.minecraft` on
-Windows, `~/.minecraft` on Linux, and `~/Library/Application Support/minecraft` on macOS; custom
-launcher and instance paths are supported.
+release artifacts. The usual instance locations are `%APPDATA%\.minecraft` on Windows,
+`~/.minecraft` on Linux, and `~/Library/Application Support/minecraft` on macOS; custom launcher and
+instance paths are supported.
 
 ## Install a published release
 
