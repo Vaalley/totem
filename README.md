@@ -16,14 +16,16 @@ into an instance, download mods, or provide cloud storage.
   machine running Totem.
 
 Totem runs from source on platforms supported by Deno. The project currently builds and publishes
-native x64 release artifacts for Windows, Linux, and macOS:
+native release artifacts for Windows, Linux, and macOS:
 
 - `totem-windows-x64.exe`
 - `totem-linux-x64.tar.gz`
-- `totem-macos-x64.tar.gz`
+- `totem-macos-x64.tar.gz` (Intel)
+- `totem-macos-arm64.tar.gz` (Apple Silicon)
 
-Other operating systems and CPU architectures may run the Deno source where Deno supports them, but
-are not current release artifacts. The usual instance locations are `%APPDATA%\.minecraft` on
+Each release also publishes `SHA256SUMS.txt` with checksums for every artifact. Other operating
+systems and CPU architectures may run the Deno source where Deno supports them, but are not current
+release artifacts. The usual instance locations are `%APPDATA%\.minecraft` on
 Windows, `~/.minecraft` on Linux, and `~/Library/Application Support/minecraft` on macOS; custom
 launcher and instance paths are supported.
 
@@ -39,10 +41,15 @@ tar -xzf totem-linux-x64.tar.gz
 chmod +x totem-linux-x64   # use this if extraction did not preserve executable permissions
 ./totem-linux-x64
 
-# macOS
+# macOS (Intel)
 tar -xzf totem-macos-x64.tar.gz
 chmod +x totem-macos-x64   # use this if extraction did not preserve executable permissions
 ./totem-macos-x64
+
+# macOS (Apple Silicon)
+tar -xzf totem-macos-arm64.tar.gz
+chmod +x totem-macos-arm64
+./totem-macos-arm64
 ```
 
 The standalone release binaries do not require Deno. The first run still asks for the Minecraft
