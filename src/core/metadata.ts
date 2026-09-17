@@ -1,3 +1,4 @@
+import { formatBytes, formatDuration } from "./format.ts";
 import { KNOWN_CUSTOM_FOLDERS } from "./paths.ts";
 import type { BackupOptions, BackupStats, CustomFolderSummary, MinecraftInfo } from "./types.ts";
 
@@ -332,22 +333,13 @@ async function directoryFileCount(path: string): Promise<number> {
   return count;
 }
 
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "0 bytes";
-  if (bytes < 1024) return `${bytes} bytes`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unit = "bytes";
-  for (const candidate of units) {
-    value /= 1024;
-    unit = candidate;
-    if (value < 1024 || candidate === units.at(-1)) break;
-  }
-  return `${value.toFixed(2)} ${unit} (${bytes} bytes)`;
+function formatOptionalBytes(bytes: number | undefined): string {
+  return bytes === undefined ? UNKNOWN : detailedBytes(bytes);
 }
 
-function formatOptionalBytes(bytes: number | undefined): string {
-  return bytes === undefined ? UNKNOWN : formatBytes(bytes);
+/** Byte count with the exact raw value preserved for audit records. */
+function detailedBytes(bytes: number): string {
+  return `${formatBytes(bytes)} (${bytes} bytes)`;
 }
 
 function markdownTable(rows: Array<[string, string]>): string {
@@ -369,13 +361,18 @@ function markdownDetails(headers: string[], rows: string[][]): string {
 
 function largestTable(rows: LargestEntry[]): string {
   const tableRows = rows.length
-    ? rows.map((entry) => [entry.name, formatBytes(entry.size)] as [string, string])
+    ? rows.map((entry) => [entry.name, detailedBytes(entry.size)] as [string, string])
     : [["No items", "—"] as [string, string]];
   return markdownDetails(["Name", "Size"], tableRows);
 }
 
 function safeNumber(stats: BackupStats, key: keyof BackupStats): string {
   const value = stats[key];
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : UNKNOWN;
+}
+
+function customFilesCopied(stats: BackupStats, id: string): string {
+  const value = stats.customFolderFilesCopied?.[id];
   return typeof value === "number" && Number.isFinite(value) ? String(value) : UNKNOWN;
 }
 
@@ -460,13 +457,13 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
         : folder.id === "mods"
         ? summary.configFileCount > 0 || summary.configBytes > 0
           ? `Preserved in \`config/\` (${summary.configFileCount} files, ${
-            formatBytes(summary.configBytes)
+            detailedBytes(summary.configBytes)
           })`
           : "No config/ present"
         : folder.id === "shaderpacks"
         ? summary.configFileCount > 0
           ? `Preserved in \`shader-configs/\` (${summary.configFileCount} root .txt configs, ${
-            formatBytes(summary.configBytes)
+            detailedBytes(summary.configBytes)
           })`
           : "No root .txt configs present"
         : "Not applicable";
@@ -482,7 +479,7 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
         present ? safeNumber(stats, folder.listed) : "Not present",
         present ? safeNumber(stats, folder.copied) : "Not present",
         config,
-        formatBytes(estimated),
+        detailedBytes(estimated),
         present ? formatOptionalBytes(actual) : "Omitted (not present)",
       ];
     }),
@@ -492,7 +489,9 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
       metrics.screenshots.present ? UNKNOWN : "Not present",
       metrics.screenshots.present ? safeNumber(stats, "screenshotsCopied") : "Not present",
       metrics.screenshots.present ? "Copied recursively" : "Omitted (not present)",
-      metrics.screenshots.present ? formatBytes(metrics.screenshots.estimatedFullBytes) : "0 bytes",
+      metrics.screenshots.present
+        ? detailedBytes(metrics.screenshots.estimatedFullBytes)
+        : detailedBytes(0),
       metrics.screenshots.present
         ? formatOptionalBytes(await pathSize(`${args.backupPath}/screenshots`))
         : "Omitted (not present)",
@@ -503,7 +502,7 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
       String(metrics.saves.listedEntries),
       safeNumber(stats, "savesCopied"),
       "Not applicable",
-      args.options.includeSaves ? formatBytes(metrics.saves.estimatedFullBytes) : "Not selected",
+      args.options.includeSaves ? detailedBytes(metrics.saves.estimatedFullBytes) : "Not selected",
       formatOptionalBytes(actualSizes.saves),
     ],
   ];
@@ -521,9 +520,6 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
     );
   const customSizes = new Map<string, number | undefined>();
   const customActualSizes = new Map<string, number | undefined>();
-  const statsWithCustom = stats as BackupStats & {
-    customFolderFilesCopied?: Record<string, number>;
-  };
   for (const folder of customFolders) {
     customSizes.set(
       folder.id,
@@ -532,21 +528,13 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
     customActualSizes.set(folder.id, await pathSize(`${args.backupPath}/${folder.folderName}`));
   }
   const customRows = customFolders.map((folder) => {
-    const known = KNOWN_CUSTOM_FOLDERS.some((knownFolder) => knownFolder.id === folder.id);
-    const copiedKey = `${folder.id}Copied` as keyof BackupStats;
-    const dynamicCopied = statsWithCustom.customFolderFilesCopied?.[folder.id];
-    const copied = known
-      ? safeNumber(stats, copiedKey)
-      : typeof dynamicCopied === "number" && Number.isFinite(dynamicCopied)
-      ? String(dynamicCopied)
-      : UNKNOWN;
     return [
       folder.id,
       folder.label,
       folder.folderName,
       folder.path,
       selectedCustom.has(folder.id) ? "Selected" : "Not selected",
-      copied,
+      customFilesCopied(stats, folder.id),
       formatOptionalBytes(customSizes.get(folder.id)),
       formatOptionalBytes(customActualSizes.get(folder.id)),
     ];
@@ -591,19 +579,19 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
     ...KNOWN_CUSTOM_FOLDERS.map((folder) =>
       [
         `${folder.label} files copied`,
-        safeNumber(stats, `${folder.id}Copied` as keyof BackupStats),
+        customFilesCopied(stats, folder.id),
       ] as [string, string]
     ),
     ["Custom folder files copied", safeNumber(stats, "customFoldersCopied")],
     ["Total entries listed", safeNumber(stats, "totalEntriesListed")],
     [
       "Total bytes listed",
-      typeof stats.totalBytesListed === "number" ? formatBytes(stats.totalBytesListed) : UNKNOWN,
+      typeof stats.totalBytesListed === "number" ? detailedBytes(stats.totalBytesListed) : UNKNOWN,
     ],
     ["Total files copied", safeNumber(stats, "totalFilesCopied")],
     [
       "Total bytes copied",
-      typeof stats.totalBytesCopied === "number" ? formatBytes(stats.totalBytesCopied) : UNKNOWN,
+      typeof stats.totalBytesCopied === "number" ? detailedBytes(stats.totalBytesCopied) : UNKNOWN,
     ],
   ];
 
@@ -670,8 +658,8 @@ export async function generateInfoMarkdown(args: InfoMarkdownArgs): Promise<void
         ],
         ["Loader", safeText(args.info.loader)],
         ["Loader version", safeText(args.info.loaderVersion)],
-        ["Duration", `${Math.max(0, args.durationMs)} ms`],
-        ["Final backup size", formatBytes(finalSize)],
+        ["Duration", formatDuration(args.durationMs)],
+        ["Final backup size", detailedBytes(finalSize)],
       ]),
       "",
       "## Minecraft Information",

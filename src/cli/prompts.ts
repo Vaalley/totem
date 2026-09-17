@@ -7,6 +7,7 @@ import type {
   MinecraftInspection,
 } from "../core/types.ts";
 import { inspectMinecraftInstance } from "../core/inspect.ts";
+import { formatBytes } from "../core/format.ts";
 import { normalizeUserPath } from "../core/paths.ts";
 
 type PromptQuestion<
@@ -67,19 +68,6 @@ export function defaultBackupDestination(): string {
   return joinPath(homeDirectory(), "TotemBackups");
 }
 
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.max(0, bytes)} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unit = "B";
-  for (const candidate of units) {
-    value /= 1024;
-    unit = candidate;
-    if (value < 1024 || candidate === units[units.length - 1]) break;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
-}
-
 async function askInput<T>(question: PromptQuestion<typeof Input>): Promise<T> {
   const answer = await prompt([question]) as Record<string, unknown>;
   return answer[question.name] as T;
@@ -118,27 +106,6 @@ function modeQuestion(folder: FolderSummary): PromptQuestion<typeof Select> {
       },
     ],
     default: "manifest",
-  };
-}
-
-/** Kept as a small convenience for callers that build selections programmatically. */
-export function backupOptionsFromSelection(selection: string[]): BackupOptions {
-  const selected = new Set(selection);
-  const reserved: Record<string, true> = {
-    mods: true,
-    resourcepacks: true,
-    shaderpacks: true,
-    includeSaves: true,
-    zipOutput: true,
-    openWhenDone: true,
-  };
-  return {
-    ...DEFAULT_BACKUP_OPTIONS,
-    folderModes: { ...DEFAULT_BACKUP_OPTIONS.folderModes },
-    includeSaves: selected.has("includeSaves"),
-    customFolders: [...selected].filter((id) => reserved[id] !== true),
-    zipOutput: selected.has("zipOutput"),
-    openWhenDone: selected.has("openWhenDone"),
   };
 }
 
@@ -249,5 +216,6 @@ export async function promptForBackup(defaults: PromptDefaults = {}): Promise<Ba
       zipOutput,
       openWhenDone,
     },
+    inspection,
   };
 }

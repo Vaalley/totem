@@ -4,15 +4,24 @@ interface ArchiveEntry {
   path?: string;
 }
 
-function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of data) {
-    crc ^= byte;
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let value = i;
     for (let bit = 0; bit < 8; bit++) {
-      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+      value = (value >>> 1) ^ (0xedb88320 & -(value & 1));
     }
+    table[i] = value >>> 0;
   }
-  return (crc ^ 0xffffffff) >>> 0;
+  return table;
+})();
+
+/** Accumulate a CRC32 over `data`; finalize the running value with `(crc ^ 0xffffffff) >>> 0`. */
+function crc32(data: Uint8Array, crc = 0xffffffff): number {
+  for (const byte of data) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return crc >>> 0;
 }
 
 function put16(view: DataView, offset: number, value: number): void {
@@ -126,6 +135,9 @@ async function collectEntries(root: string): Promise<ArchiveEntry[]> {
 /** Create a ZIP archive containing the source directory's recursive contents. */
 export async function createZipArchive(sourceDir: string, destinationZip: string): Promise<void> {
   const entries = await collectEntries(sourceDir);
+  if (entries.length > 0xffff) {
+    throw new Error("ZIP archive exceeds the classic ZIP directory limit");
+  }
   const encoder = new TextEncoder();
   const central: Uint8Array[] = [];
   let offset = 0;
@@ -140,7 +152,7 @@ export async function createZipArchive(sourceDir: string, destinationZip: string
       if (nameBytes.byteLength > 0xffff) {
         throw new Error("ZIP entry name exceeds the classic ZIP limit");
       }
-      let data = new Uint8Array();
+      let source: Deno.FsFile | undefined;
       if (!entry.isDirectory) {
         const sourceInfo = await Deno.lstat(entry.path!);
         if (sourceInfo.isSymlink) {
@@ -149,10 +161,15 @@ export async function createZipArchive(sourceDir: string, destinationZip: string
         if (!sourceInfo.isFile) {
           throw new Error(`Archive entry is no longer a regular file: ${entry.path}`);
         }
-        data = await Deno.readFile(entry.path!);
+        if (sourceInfo.size > 0xffffffff) {
+          throw new Error("ZIP archive exceeds the classic ZIP size limit");
+        }
+        source = await Deno.open(entry.path!, { read: true });
       }
-      const checksum = entry.isDirectory ? 0 : crc32(data);
-      if (offset > 0xffffffff || data.byteLength > 0xffffffff) {
+      // UTF-8 names; crc and sizes are patched into the local header after streaming.
+      const flags = 0x800;
+      const entryOffset = offset;
+      if (entryOffset > 0xffffffff - (30 + nameBytes.byteLength)) {
         throw new Error("ZIP archive exceeds the classic ZIP size limit");
       }
 
@@ -160,45 +177,94 @@ export async function createZipArchive(sourceDir: string, destinationZip: string
       const localView = new DataView(localHeader.buffer);
       put32(localView, 0, 0x04034b50);
       put16(localView, 4, 20);
-      put16(localView, 6, 0x800); // UTF-8 names
-      put16(localView, 8, 0); // stored (uncompressed)
+      put16(localView, 6, flags);
+      put16(localView, 8, entry.isDirectory ? 0 : 8); // stored or deflated
       put16(localView, 10, 0); // deterministic DOS time
       put16(localView, 12, 0); // deterministic DOS date
-      put32(localView, 14, checksum);
-      put32(localView, 18, data.byteLength);
-      put32(localView, 22, data.byteLength);
+      put32(localView, 14, 0); // crc32 patched in place after the data streams
+      put32(localView, 18, 0); // compressed size patched in place
+      put32(localView, 22, 0); // uncompressed size patched in place
       put16(localView, 26, nameBytes.byteLength);
       put16(localView, 28, 0);
-      await writeAll(output, concatBytes(localHeader, nameBytes, data));
+      await writeAll(output, concatBytes(localHeader, nameBytes));
+      offset += 30 + nameBytes.byteLength;
+
+      let checksum = 0;
+      let compressedSize = 0;
+      let uncompressedSize = 0;
+      if (source !== undefined) {
+        let crc = 0xffffffff;
+        const tap = new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            crc = crc32(chunk, crc);
+            uncompressedSize += chunk.byteLength;
+            if (uncompressedSize > 0xffffffff) {
+              throw new Error("ZIP archive exceeds the classic ZIP size limit");
+            }
+            controller.enqueue(chunk);
+          },
+        });
+        const sink = new WritableStream<Uint8Array>({
+          write: async (chunk) => {
+            if (offset + compressedSize + chunk.byteLength > 0xffffffff) {
+              throw new Error("ZIP archive exceeds the classic ZIP size limit");
+            }
+            compressedSize += chunk.byteLength;
+            await writeAll(output!, chunk);
+          },
+        });
+        try {
+          await source.readable
+            .pipeThrough(tap)
+            .pipeThrough(
+              new CompressionStream("deflate-raw") as ReadableWritablePair<Uint8Array, Uint8Array>,
+            )
+            .pipeTo(sink);
+        } finally {
+          try {
+            source.close();
+          } catch {
+            // The readable stream already closed the file.
+          }
+        }
+        checksum = (crc ^ 0xffffffff) >>> 0;
+        offset += compressedSize;
+
+        const patch = new Uint8Array(12);
+        const patchView = new DataView(patch.buffer);
+        put32(patchView, 0, checksum);
+        put32(patchView, 4, compressedSize);
+        put32(patchView, 8, uncompressedSize);
+        await output.seek(entryOffset + 14, Deno.SeekMode.Start);
+        await writeAll(output, patch);
+        await output.seek(0, Deno.SeekMode.End);
+      }
 
       const centralHeader = new Uint8Array(46);
       const centralView = new DataView(centralHeader.buffer);
       put32(centralView, 0, 0x02014b50);
       put16(centralView, 4, 20);
       put16(centralView, 6, 20);
-      put16(centralView, 8, 0x800);
-      put16(centralView, 10, 0);
+      put16(centralView, 8, flags);
+      put16(centralView, 10, entry.isDirectory ? 0 : 8);
       put16(centralView, 12, 0);
       put16(centralView, 14, 0);
       put32(centralView, 16, checksum);
-      put32(centralView, 20, data.byteLength);
-      put32(centralView, 24, data.byteLength);
+      put32(centralView, 20, compressedSize);
+      put32(centralView, 24, uncompressedSize);
       put16(centralView, 28, nameBytes.byteLength);
       put16(centralView, 30, 0);
       put16(centralView, 32, 0);
-      put16(centralView, 34, entry.isDirectory ? 0x10 : 0);
-      put32(centralView, 38, 0);
-      put32(centralView, 42, offset);
+      put16(centralView, 34, 0); // disk number start: always 0 (single-volume archive)
+      put16(centralView, 36, 0); // internal attributes
+      put32(centralView, 38, entry.isDirectory ? 0x10 : 0); // external MS-DOS directory attribute
+      put32(centralView, 42, entryOffset);
       central.push(concatBytes(centralHeader, nameBytes));
-      offset += 30 + nameBytes.byteLength + data.byteLength;
     }
 
     const centralOffset = offset;
     const centralBytes = concatBytes(...central);
-    if (
-      entries.length > 0xffff || centralBytes.byteLength > 0xffffffff ||
-      centralOffset > 0xffffffff
-    ) {
+    if (centralBytes.byteLength > 0xffffffff || centralOffset > 0xffffffff) {
       throw new Error("ZIP archive exceeds the classic ZIP directory limit");
     }
     await writeAll(output, centralBytes);

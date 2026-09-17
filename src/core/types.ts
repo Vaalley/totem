@@ -18,6 +18,7 @@ export interface BackupRequest {
   minecraftPath: string;
   backupDestination: string;
   options: BackupOptions;
+  inspection?: MinecraftInspection;
 }
 
 export type KnownCustomFolderId =
@@ -69,15 +70,8 @@ export interface BackupStats {
   resourcepacksListed: number;
   resourcepacksCopied: number;
   savesCopied: number;
-  xaeroCopied: number;
-  distantHorizonsCopied: number;
-  journeymapCopied: number;
-  voxelmapCopied: number;
-  mapwriterCopied: number;
-  litematicaCopied: number;
-  replayRecordingsCopied: number;
   customFoldersCopied: number;
-  customFolderFilesCopied?: Record<string, number>;
+  customFolderFilesCopied: Record<string, number>;
   totalEntriesListed: number;
   totalBytesListed: number;
   totalFilesCopied: number;

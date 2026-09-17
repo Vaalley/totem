@@ -12,8 +12,11 @@ permissions:
 
 jobs:
   verify:
-    name: Check and test
-    runs-on: ubuntu-latest
+    name: Check and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -46,6 +49,9 @@ jobs:
           - platform: macos-x64
             runner: macos-15-intel
             output: totem-macos-x64
+          - platform: macos-arm64
+            runner: macos-14
+            output: totem-macos-arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
@@ -90,6 +96,10 @@ jobs:
           path: release-binaries
           pattern: totem-*
           merge-multiple: true
+      - name: Generate SHA-256 checksums
+        run: |
+          cd release-binaries
+          sha256sum $(ls | grep -v SHA256SUMS) > SHA256SUMS.txt
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:

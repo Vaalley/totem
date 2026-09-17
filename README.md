@@ -62,6 +62,15 @@ This task is equivalent to:
 deno run --allow-read --allow-write --allow-env --allow-run src/main.ts
 ```
 
+A desktop GUI is also available via `deno desktop` (Deno 2.9+):
+
+```sh
+deno task desktop        # run with hot reload
+deno task desktop:build  # compile a native app bundle
+```
+
+The GUI drives the same inspect → select → backup flow as the TUI.
+
 The first prompt asks for the **Minecraft instance path**. Totem validates that path and inspects it
 before asking for a destination or backup selections. For each present `mods/`, `resourcepacks/`,
 and `shaderpacks/` folder, the TUI shows a recursive source-byte estimate and asks for one of these
@@ -184,6 +193,19 @@ directory as `directoryPath`. ZIP creation is local and does not upload anything
 | Custom-folder toggles | When a known or eligible additional immediate root folder is present | Copy only selected mod-created data recursively.                                                                   |
 | ZIP output            | Always                                                               | Create a sibling ZIP beside the backup directory.                                                                  |
 | Open when done        | Always                                                               | Open the backup directory for uncompressed output; open its containing output location when ZIP output is enabled. |
+
+### Non-interactive flags
+
+Pass `--instance` to run a backup without prompts:
+
+```sh
+totem --instance ~/.minecraft --dest ~/backups --mode full --saves --zip
+```
+
+`--mode` (`manifest` or `full`, default `manifest`) applies to all three standard folders, `--saves`
+includes `saves/`, `--custom <ids>` selects comma-separated custom folder ids, and `--zip` writes
+the sibling archive. `--open` opens the backup location when done; it defaults off in
+non-interactive mode. Omitting `--instance` starts the interactive TUI described above.
 
 `deno task start` grants exactly `--allow-read --allow-write --allow-env --allow-run`:
 

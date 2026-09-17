@@ -1,4 +1,5 @@
 import type { BackupProgress, ProgressReporter } from "../core/types.ts";
+import { formatBytes } from "../core/format.ts";
 
 export interface ProgressOutput {
   write(text: string): void | Promise<void>;
@@ -30,19 +31,6 @@ function terminalByDefault(): boolean {
   } catch {
     return false;
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.max(0, bytes)} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unit = "B";
-  for (const candidate of units) {
-    value /= 1024;
-    unit = candidate;
-    if (value < 1024 || candidate === units[units.length - 1]) break;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
 }
 
 function plainProgress(progress: BackupProgress): string {

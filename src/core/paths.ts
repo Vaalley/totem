@@ -1,4 +1,4 @@
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "@std/path";
+import { isAbsolute, join, normalize, relative, resolve } from "@std/path";
 import type { KnownCustomFolder, MinecraftPaths } from "./types.ts";
 
 /** Stable registry for mod-created folders that can be copied as custom data. */
@@ -125,5 +125,3 @@ export function pathsOverlap(left: string, right: string): boolean {
 function separator(): string {
   return Deno.build.os === "windows" ? "\\" : "/";
 }
-
-export { basename, dirname, join, normalize };

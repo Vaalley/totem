@@ -2,6 +2,7 @@
 .deno/
 dist/
 coverage/
+Totem/
 
 # Local backup output and runtime logs
 backups/

@@ -1,7 +1,8 @@
+import { join } from "@std/path";
+import { errorMessage } from "./format.ts";
 import {
   buildMinecraftPaths,
   CUSTOM_FOLDER_DISCOVERY_DENYLIST,
-  join,
   KNOWN_CUSTOM_FOLDERS,
   normalizeUserPath,
 } from "./paths.ts";
@@ -35,10 +36,6 @@ const markers: readonly Marker[] = [
     directory: true,
   })),
 ];
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function consumeCsi(value: string, start: number): number {
   let index = start;
@@ -416,5 +413,3 @@ export async function inspectMinecraftInstance(root: string): Promise<MinecraftI
     customFolders,
   };
 }
-
-export const validateMinecraftPath = inspectMinecraftPath;

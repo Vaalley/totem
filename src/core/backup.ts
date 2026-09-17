@@ -2,7 +2,8 @@ import { basename, dirname, extname, join, resolve } from "@std/path";
 import { createZipArchive } from "./archive.ts";
 import { detectMinecraftInfo, generateInfoMarkdown } from "./metadata.ts";
 import { inspectMinecraftInstance } from "./inspect.ts";
-import { absoluteUserPath, normalizeUserPath, pathsOverlap } from "./paths.ts";
+import { errorMessage, formatBytes } from "./format.ts";
+import { absoluteUserPath, normalizeUserPath, pathsEqual, pathsOverlap } from "./paths.ts";
 import type {
   BackupOptions,
   BackupProgress,
@@ -12,7 +13,6 @@ import type {
   DirectoryEntryInfo,
   FolderBackupMode,
   FolderSummary,
-  KnownCustomFolderId,
   MinecraftInfo,
   MinecraftInspection,
   ProgressReporter,
@@ -24,34 +24,11 @@ const defaultInfo: MinecraftInfo = {
   loaderVersion: "unknown",
 };
 
-export { buildMinecraftPaths } from "./paths.ts";
-export { inspectMinecraftPath as validateMinecraftPath } from "./inspect.ts";
-export { normalizeUserPath } from "./paths.ts";
-
 export function generateTimestamp(now = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}-${
     pad(now.getUTCHours())
   }${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`;
-}
-
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = -1;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)} ${units[unit]}`;
-}
-
-export function formatDuration(durationMs: number): string {
-  if (!Number.isFinite(durationMs) || durationMs < 0) return "0ms";
-  if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
-  return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
 }
 
 function emptyStats(): BackupStats {
@@ -65,13 +42,6 @@ function emptyStats(): BackupStats {
     resourcepacksListed: 0,
     resourcepacksCopied: 0,
     savesCopied: 0,
-    xaeroCopied: 0,
-    distantHorizonsCopied: 0,
-    journeymapCopied: 0,
-    voxelmapCopied: 0,
-    mapwriterCopied: 0,
-    litematicaCopied: 0,
-    replayRecordingsCopied: 0,
     customFoldersCopied: 0,
     customFolderFilesCopied: {},
     totalEntriesListed: 0,
@@ -84,14 +54,8 @@ function emptyStats(): BackupStats {
 function copyStats(stats: BackupStats): BackupStats {
   return {
     ...stats,
-    customFolderFilesCopied: stats.customFolderFilesCopied
-      ? { ...stats.customFolderFilesCopied }
-      : undefined,
+    customFolderFilesCopied: { ...stats.customFolderFilesCopied },
   };
-}
-
-function asError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function report(
@@ -103,7 +67,7 @@ async function report(
   try {
     await reporter({ ...progress, stats: copyStats(progress.stats) });
   } catch (error) {
-    errors.push(`Progress reporter failed: ${asError(error)}`);
+    errors.push(`Progress reporter failed: ${errorMessage(error)}`);
   }
 }
 
@@ -163,6 +127,13 @@ async function copyOneFile(source: string, destination: string, stats: BackupSta
   if (!sourceInfo.isFile) throw new Error(`Expected a file: ${source}`);
   await Deno.mkdir(resolve(destination, ".."), { recursive: true });
   await Deno.copyFile(source, destination);
+  if (sourceInfo.mtime !== null) {
+    try {
+      await Deno.utime(destination, sourceInfo.mtime, sourceInfo.mtime);
+    } catch {
+      // Timestamp fidelity must never fail the backup.
+    }
+  }
   stats.totalFilesCopied++;
   stats.totalBytesCopied += sourceInfo.size;
 }
@@ -171,7 +142,7 @@ async function copyTree(
   source: string,
   destination: string,
   stats: BackupStats,
-  onFile?: () => void,
+  onFile?: () => void | Promise<void>,
 ): Promise<number> {
   const info = await Deno.lstat(source);
   rejectSymlink(source, info);
@@ -188,7 +159,7 @@ async function copyTree(
     } else if (entry.isFile) {
       await copyOneFile(from, to, stats);
       copied++;
-      onFile?.();
+      await onFile?.();
     } else {
       throw new Error(`Unsupported directory entry: ${from}`);
     }
@@ -237,7 +208,7 @@ async function copyOptionalTree(
   destination: string,
   stats: BackupStats,
   errors: string[],
-  onFile?: () => void,
+  onFile?: () => void | Promise<void>,
 ): Promise<void> {
   try {
     const sourceInfo = await lstatIfPresent(source);
@@ -246,7 +217,7 @@ async function copyOptionalTree(
       await copyTree(source, destination, stats, onFile);
     }
   } catch (error) {
-    errors.push(`Unable to copy ${source}: ${asError(error)}`);
+    errors.push(`Unable to copy ${source}: ${errorMessage(error)}`);
   }
 }
 
@@ -275,7 +246,7 @@ async function chooseOutputDirectory(
     }
     throw new Error("Unable to choose a collision-safe backup directory name");
   } catch (error) {
-    errors.push(`Unable to prepare backup destination: ${asError(error)}`);
+    errors.push(`Unable to prepare backup destination: ${errorMessage(error)}`);
     return undefined;
   }
 }
@@ -296,7 +267,7 @@ async function manifestFor(
     );
     return entries;
   } catch (error) {
-    errors.push(`Unable to list or write manifest for ${source}: ${asError(error)}`);
+    errors.push(`Unable to list or write manifest for ${source}: ${errorMessage(error)}`);
     return [];
   }
 }
@@ -325,23 +296,13 @@ async function copyShaderConfigs(
         await copyOneFile(join(source, config.name), join(destination, config.name), stats);
         stats.shaderConfigsCopied++;
       } catch (error) {
-        errors.push(`Unable to copy shader config ${config.name}: ${asError(error)}`);
+        errors.push(`Unable to copy shader config ${config.name}: ${errorMessage(error)}`);
       }
     }
   } catch (error) {
-    errors.push(`Unable to list shader configs: ${asError(error)}`);
+    errors.push(`Unable to list shader configs: ${errorMessage(error)}`);
   }
 }
-
-const customCounterById: Record<KnownCustomFolderId, keyof BackupStats> = {
-  xaero: "xaeroCopied",
-  distantHorizons: "distantHorizonsCopied",
-  journeymap: "journeymapCopied",
-  voxelmap: "voxelmapCopied",
-  mapwriter: "mapwriterCopied",
-  litematica: "litematicaCopied",
-  replayRecordings: "replayRecordingsCopied",
-};
 
 async function backupSelectableFolder(
   source: string,
@@ -393,22 +354,42 @@ export async function performBackup(
   const destinationPath = normalizeUserPath(request.backupDestination);
   const options: BackupOptions = request.options;
   let inspection: MinecraftInspection | undefined;
+  let lastPhase: BackupProgress | undefined;
+  let lastReportAt = 0;
+  const reportPhase = async (progress: BackupProgress): Promise<void> => {
+    lastPhase = progress;
+    lastReportAt = Date.now();
+    await report(reporter, errors, progress);
+  };
+  const fileProgress = async (count: () => void): Promise<void> => {
+    count();
+    if (lastPhase && Date.now() - lastReportAt >= 250) {
+      lastReportAt = Date.now();
+      await report(reporter, errors, {
+        ...lastPhase,
+        completedFiles: stats.totalFilesCopied,
+        stats,
+      });
+    }
+  };
 
-  await report(reporter, errors, {
+  await reportPhase({
     phase: "validating",
     message: "Inspecting Minecraft path",
     completedFiles: 0,
     stats,
   });
   try {
-    inspection = await inspectMinecraftInstance(sourcePath);
+    inspection = request.inspection && pathsEqual(request.inspection.root, sourcePath)
+      ? request.inspection
+      : await inspectMinecraftInstance(sourcePath);
     errors.push(...inspection.validation.errors);
   } catch (error) {
-    errors.push(`Unable to inspect Minecraft path: ${asError(error)}`);
+    errors.push(`Unable to inspect Minecraft path: ${errorMessage(error)}`);
   }
   if (inspection?.validation.valid) {
     const sourceInfo = await lstatIfPresent(sourcePath).catch((error) => {
-      errors.push(`Unable to inspect Minecraft source: ${asError(error)}`);
+      errors.push(`Unable to inspect Minecraft source: ${errorMessage(error)}`);
       return undefined;
     });
     if (sourceInfo?.isSymlink) {
@@ -419,10 +400,10 @@ export async function performBackup(
         errors.push("Minecraft source and backup destination must not overlap");
       }
     } catch (error) {
-      errors.push(`Unable to inspect backup destination: ${asError(error)}`);
+      errors.push(`Unable to inspect backup destination: ${errorMessage(error)}`);
     }
     const destinationInfo = await statIfPresent(destinationPath).catch((error) => {
-      errors.push(`Unable to inspect backup destination: ${asError(error)}`);
+      errors.push(`Unable to inspect backup destination: ${errorMessage(error)}`);
       return undefined;
     });
     if (destinationInfo && !destinationInfo.isDirectory) {
@@ -432,7 +413,7 @@ export async function performBackup(
 
   if (!inspection || errors.length > 0) {
     const durationMs = Date.now() - started;
-    await report(reporter, errors, {
+    await reportPhase({
       phase: "complete",
       message: "Backup rejected",
       completedFiles: 0,
@@ -449,7 +430,7 @@ export async function performBackup(
     };
   }
 
-  await report(reporter, errors, {
+  await reportPhase({
     phase: "preparing",
     message: "Preparing backup directory",
     completedFiles: 0,
@@ -458,7 +439,7 @@ export async function performBackup(
   const chosen = await chooseOutputDirectory(destinationPath, errors);
   if (!chosen) {
     const durationMs = Date.now() - started;
-    await report(reporter, errors, {
+    await reportPhase({
       phase: "complete",
       message: "Backup failed",
       completedFiles: 0,
@@ -478,7 +459,7 @@ export async function performBackup(
   outputPath = directoryPath;
   const paths = inspection.paths;
 
-  await report(reporter, errors, {
+  await reportPhase({
     phase: "screenshots",
     message: "Copying screenshots",
     completedFiles: stats.totalFilesCopied,
@@ -489,60 +470,88 @@ export async function performBackup(
     join(directoryPath, "screenshots"),
     stats,
     errors,
-    () => {
-      stats.screenshotsCopied++;
-    },
+    () => fileProgress(() => stats.screenshotsCopied++),
   );
 
-  const mods = inspection.folders.mods;
-  if (mods) {
-    await report(reporter, errors, {
+  const selectableFolders: Array<{
+    summary: FolderSummary | undefined;
+    sourcePath: string;
+    destName: string;
+    manifestName: string;
+    phase: "mods" | "shaders" | "resourcepacks";
+    listedField: "modsListed" | "shadersListed" | "resourcepacksListed";
+    copiedField: "modsCopied" | "shadersCopied" | "resourcepacksCopied";
+    mode: FolderBackupMode;
+    fullLabel: string;
+    manifestLabel: string;
+    filter?: (entry: DirectoryEntryInfo) => boolean;
+  }> = [
+    {
+      summary: inspection.folders.mods,
+      sourcePath: paths.mods,
+      destName: "mods",
+      manifestName: "mods.txt",
       phase: "mods",
-      message: options.folderModes.mods === "full"
-        ? `Copying mods (${formatBytes(mods.estimatedFullBytes)})`
-        : `Writing mod manifest (${formatBytes(mods.estimatedManifestBytes)})`,
-      completedFiles: stats.totalFilesCopied,
-      totalFiles: mods.fileCount,
-      stats,
-    });
-    await backupSelectableFolder(
-      paths.mods,
-      join(directoryPath, "mods"),
-      mods,
-      options.folderModes.mods,
-      "mods.txt",
-      stats,
-      errors,
-      (count) => stats.modsListed = count,
-      () => stats.modsCopied++,
-    );
-    await copyRootConfig(paths.config, join(directoryPath, "config"), stats, errors);
-  }
-
-  const shaders = inspection.folders.shaderpacks;
-  if (shaders) {
-    await report(reporter, errors, {
+      listedField: "modsListed",
+      copiedField: "modsCopied",
+      mode: options.folderModes.mods,
+      fullLabel: "Copying mods",
+      manifestLabel: "Writing mod manifest",
+    },
+    {
+      summary: inspection.folders.shaderpacks,
+      sourcePath: paths.shaderpacks,
+      destName: "shaderpacks",
+      manifestName: "shaders.txt",
       phase: "shaders",
-      message: options.folderModes.shaderpacks === "full"
-        ? `Copying shaderpacks (${formatBytes(shaders.estimatedFullBytes)})`
-        : `Writing shader manifest (${formatBytes(shaders.estimatedManifestBytes)})`,
+      listedField: "shadersListed",
+      copiedField: "shadersCopied",
+      mode: options.folderModes.shaderpacks,
+      fullLabel: "Copying shaderpacks",
+      manifestLabel: "Writing shader manifest",
+      filter: (entry) => !(entry.kind === "file" && extname(entry.name).toLowerCase() === ".txt"),
+    },
+    {
+      summary: inspection.folders.resourcepacks,
+      sourcePath: paths.resourcepacks,
+      destName: "resourcepacks",
+      manifestName: "resourcepacks.txt",
+      phase: "resourcepacks",
+      listedField: "resourcepacksListed",
+      copiedField: "resourcepacksCopied",
+      mode: options.folderModes.resourcepacks,
+      fullLabel: "Copying resourcepacks",
+      manifestLabel: "Writing resource pack manifest",
+    },
+  ];
+  for (const folder of selectableFolders) {
+    const summary = folder.summary;
+    if (!summary) continue;
+    await reportPhase({
+      phase: folder.phase,
+      message: folder.mode === "full"
+        ? `${folder.fullLabel} (${formatBytes(summary.estimatedFullBytes)})`
+        : `${folder.manifestLabel} (${formatBytes(summary.estimatedManifestBytes)})`,
       completedFiles: stats.totalFilesCopied,
-      totalFiles: shaders.fileCount,
+      totalFiles: summary.fileCount,
       stats,
     });
     await backupSelectableFolder(
-      paths.shaderpacks,
-      join(directoryPath, "shaderpacks"),
-      shaders,
-      options.folderModes.shaderpacks,
-      "shaders.txt",
+      folder.sourcePath,
+      join(directoryPath, folder.destName),
+      summary,
+      folder.mode,
+      folder.manifestName,
       stats,
       errors,
-      (count) => stats.shadersListed = count,
-      () => stats.shadersCopied++,
-      (entry) => !(entry.kind === "file" && extname(entry.name).toLowerCase() === ".txt"),
+      (count) => stats[folder.listedField] = count,
+      () => fileProgress(() => stats[folder.copiedField]++),
+      folder.filter,
     );
-    if (options.folderModes.shaderpacks === "manifest") {
+    if (folder.phase === "mods") {
+      await copyRootConfig(paths.config, join(directoryPath, "config"), stats, errors);
+    }
+    if (folder.phase === "shaders" && folder.mode === "manifest") {
       await copyShaderConfigs(
         paths.shaderpacks,
         join(directoryPath, "shader-configs"),
@@ -552,31 +561,7 @@ export async function performBackup(
     }
   }
 
-  const resourcepacks = inspection.folders.resourcepacks;
-  if (resourcepacks) {
-    await report(reporter, errors, {
-      phase: "resourcepacks",
-      message: options.folderModes.resourcepacks === "full"
-        ? `Copying resourcepacks (${formatBytes(resourcepacks.estimatedFullBytes)})`
-        : `Writing resource pack manifest (${formatBytes(resourcepacks.estimatedManifestBytes)})`,
-      completedFiles: stats.totalFilesCopied,
-      totalFiles: resourcepacks.fileCount,
-      stats,
-    });
-    await backupSelectableFolder(
-      paths.resourcepacks,
-      join(directoryPath, "resourcepacks"),
-      resourcepacks,
-      options.folderModes.resourcepacks,
-      "resourcepacks.txt",
-      stats,
-      errors,
-      (count) => stats.resourcepacksListed = count,
-      () => stats.resourcepacksCopied++,
-    );
-  }
-
-  await report(reporter, errors, {
+  await reportPhase({
     phase: "options",
     message: "Copying options",
     completedFiles: stats.totalFilesCopied,
@@ -587,11 +572,11 @@ export async function performBackup(
       await copyOneFile(paths.options, join(directoryPath, "options.txt"), stats);
     }
   } catch (error) {
-    errors.push(`Unable to copy options.txt: ${asError(error)}`);
+    errors.push(`Unable to copy options.txt: ${errorMessage(error)}`);
   }
 
   if (options.includeSaves && inspection.saves) {
-    await report(reporter, errors, {
+    await reportPhase({
       phase: "saves",
       message: `Copying saves (${formatBytes(inspection.saves.estimatedFullBytes)})`,
       completedFiles: stats.totalFilesCopied,
@@ -603,14 +588,14 @@ export async function performBackup(
       join(directoryPath, "saves"),
       stats,
       errors,
-      () => stats.savesCopied++,
+      () => fileProgress(() => stats.savesCopied++),
     );
   }
 
   const selectedCustomFolders = new Set(options.customFolders);
   for (const summary of inspection.customFolders) {
     if (!selectedCustomFolders.has(summary.id)) continue;
-    await report(reporter, errors, {
+    await reportPhase({
       phase: "customFolders",
       message: `Copying ${summary.label} (${formatBytes(summary.estimatedFullBytes)})`,
       completedFiles: stats.totalFilesCopied,
@@ -628,26 +613,21 @@ export async function performBackup(
       errors.push(`Unable to copy custom folder ${summary.label}: invalid folder name`);
       continue;
     }
-    const counter = Object.prototype.hasOwnProperty.call(customCounterById, summary.id)
-      ? customCounterById[summary.id as KnownCustomFolderId]
-      : undefined;
     await copyOptionalTree(
       summary.path,
       join(directoryPath, summary.folderName),
       stats,
       errors,
-      () => {
-        if (counter) stats[counter]++;
-        stats.customFoldersCopied++;
-        if (stats.customFolderFilesCopied) {
+      () =>
+        fileProgress(() => {
+          stats.customFoldersCopied++;
           stats.customFolderFilesCopied[summary.id] =
             (stats.customFolderFilesCopied[summary.id] ?? 0) + 1;
-        }
-      },
+        }),
     );
   }
 
-  await report(reporter, errors, {
+  await reportPhase({
     phase: "metadata",
     message: "Writing metadata",
     completedFiles: stats.totalFilesCopied,
@@ -656,7 +636,7 @@ export async function performBackup(
   try {
     info = await detectMinecraftInfo(sourcePath);
   } catch (error) {
-    errors.push(`Unable to detect Minecraft information: ${asError(error)}`);
+    errors.push(`Unable to detect Minecraft information: ${errorMessage(error)}`);
   }
   try {
     await generateInfoMarkdown({
@@ -677,11 +657,11 @@ export async function performBackup(
       stats.totalBytesCopied += metadataInfo.size;
     }
   } catch (error) {
-    errors.push(`Unable to write metadata: ${asError(error)}`);
+    errors.push(`Unable to write metadata: ${errorMessage(error)}`);
   }
 
   if (options.zipOutput) {
-    await report(reporter, errors, {
+    await reportPhase({
       phase: "archive",
       message: "Creating archive",
       completedFiles: stats.totalFilesCopied,
@@ -692,12 +672,12 @@ export async function performBackup(
       await createZipArchive(directoryPath, archivePath);
       outputPath = archivePath;
     } catch (error) {
-      errors.push(`Unable to create archive: ${asError(error)}`);
+      errors.push(`Unable to create archive: ${errorMessage(error)}`);
     }
   }
 
   const durationMs = Date.now() - started;
-  await report(reporter, errors, {
+  await reportPhase({
     phase: "complete",
     message: errors.length ? "Backup completed with errors" : "Backup complete",
     completedFiles: stats.totalFilesCopied,

@@ -4,6 +4,7 @@ import type {
   FolderBackupMode,
   PathValidationResult,
 } from "../core/types.ts";
+import { formatBytes, formatDuration } from "../core/format.ts";
 
 const ANSI = {
   reset: "\u001b[0m",
@@ -24,19 +25,6 @@ function colorEnabled(): boolean {
 
 function paint(value: string, color: string, enabled = colorEnabled()): string {
   return enabled ? `${color}${value}${ANSI.reset}` : value;
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.max(0, bytes)} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unit = "B";
-  for (const candidate of units) {
-    value /= 1024;
-    unit = candidate;
-    if (value < 1024 || candidate === units[units.length - 1]) break;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
 }
 
 export function renderBanner(useColor = colorEnabled()): string {
@@ -153,9 +141,4 @@ export function printError(message: string | string[]): void {
 
 export function printCancellation(message?: string): void {
   console.error(renderCancellation(message));
-}
-
-function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) return `${Math.max(0, Math.round(durationMs))} ms`;
-  return `${(durationMs / 1000).toFixed(1)} s`;
 }

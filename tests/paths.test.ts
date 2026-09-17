@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { buildMinecraftPaths, validateMinecraftPath } from "../src/core/backup.ts";
-import { inspectMinecraftInstance } from "../src/core/inspect.ts";
+import { buildMinecraftPaths } from "../src/core/paths.ts";
+import { inspectMinecraftInstance, inspectMinecraftPath } from "../src/core/inspect.ts";
 
 async function withTempDir<T>(
   fn: (root: string) => T | PromiseLike<T>,
@@ -137,7 +137,7 @@ Deno.test("inspection and validation treat absent optional folders as normal", a
     assert(inspection.validation.missing.includes("mods"));
     assert(inspection.validation.missing.includes("saves"));
 
-    const missing = await validateMinecraftPath(join(root, "does-not-exist"));
+    const missing = await inspectMinecraftPath(join(root, "does-not-exist"));
     assertEquals(missing.valid, false);
     assertStringIncludes(missing.errors.join(" ").toLowerCase(), "accessed");
   });

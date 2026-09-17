@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertExists, assertFalse, assertStringIncludes } from "@std/assert";
 import { dirname, join } from "@std/path";
-import { buildMinecraftPaths, performBackup } from "../src/core/backup.ts";
+import { performBackup } from "../src/core/backup.ts";
+import { buildMinecraftPaths } from "../src/core/paths.ts";
 import type { BackupOptions, BackupRequest, MinecraftPaths } from "../src/core/types.ts";
 
 async function withTempDir<T>(fn: (root: string) => Promise<T>): Promise<T> {
@@ -188,7 +189,7 @@ Deno.test("saves and selected custom folders are copied, while unselected or abs
     assertFalse(await exists(join(result.directoryPath, "journeymap")));
     assertFalse(await exists(join(result.directoryPath, "litematica")));
     assertEquals(result.stats.savesCopied, 1);
-    assertEquals(result.stats.xaeroCopied, 1);
+    assertEquals(result.stats.customFolderFilesCopied["xaero"], 1);
     assertEquals(result.stats.customFoldersCopied, 1);
   });
 });

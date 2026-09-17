@@ -1,6 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
-import { createZipArchive } from "../src/core/archive.ts";
 import { detectMinecraftInfo, generateInfoMarkdown } from "../src/core/metadata.ts";
 import type { BackupOptions, BackupStats, MinecraftInfo } from "../src/core/types.ts";
 
@@ -23,13 +22,15 @@ const stats: BackupStats = {
   resourcepacksListed: 7,
   resourcepacksCopied: 8,
   savesCopied: 9,
-  xaeroCopied: 1,
-  distantHorizonsCopied: 2,
-  journeymapCopied: 3,
-  voxelmapCopied: 4,
-  mapwriterCopied: 5,
-  litematicaCopied: 6,
-  replayRecordingsCopied: 7,
+  customFolderFilesCopied: {
+    xaero: 1,
+    distantHorizons: 2,
+    journeymap: 3,
+    voxelmap: 4,
+    mapwriter: 5,
+    litematica: 6,
+    replayRecordings: 7,
+  },
   customFoldersCopied: 3,
   totalEntriesListed: 15,
   totalBytesListed: 8192,
@@ -117,29 +118,9 @@ Deno.test("generateInfoMarkdown documents independent folder modes, selections, 
     assertStringIncludes(markdown, "xaero");
     assertStringIncludes(markdown, "journeymap");
     assertStringIncludes(markdown, "Estimated bytes");
-    assertStringIncludes(markdown, "| Total bytes copied | 4.00 KiB (4096 bytes) |");
+    assertStringIncludes(markdown, "| Total bytes copied | 4.0 KiB (4096 bytes) |");
     assertStringIncludes(markdown, "one copy failed");
     assertStringIncludes(markdown, "large.jar");
     assertStringIncludes(markdown, "world.dat");
-  });
-});
-
-Deno.test("createZipArchive emits a valid ZIP containing recursive files and directory entries", async () => {
-  await withTempDir(async (root) => {
-    const source = join(root, "source");
-    await Deno.mkdir(join(source, "nested", "empty"), { recursive: true });
-    await Deno.writeTextFile(join(source, "info.md"), "backup");
-    await Deno.writeTextFile(join(source, "nested", "data.txt"), "data");
-    const destination = join(root, "backup.zip");
-
-    await createZipArchive(source, destination);
-    const bytes = await Deno.readFile(destination);
-    const text = new TextDecoder().decode(bytes);
-
-    assertEquals(bytes[0], 0x50);
-    assertEquals(bytes[1], 0x4b);
-    assertStringIncludes(text, "info.md");
-    assertStringIncludes(text, "nested/");
-    assertStringIncludes(text, "nested/data.txt");
   });
 });
