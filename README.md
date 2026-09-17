@@ -29,6 +29,12 @@ release artifacts. The usual instance locations are `%APPDATA%\.minecraft` on Wi
 `~/.minecraft` on Linux, and `~/Library/Application Support/minecraft` on macOS; custom launcher and
 instance paths are supported.
 
+Desktop GUI bundles are also published:
+
+- `totem-desktop-windows-x64.msi` — Windows installer
+- `totem-desktop-linux-x64.AppImage` — portable Linux bundle
+- `totem-desktop-macos-x64.tar.gz` / `totem-desktop-macos-arm64.tar.gz` — `Totem.app` bundles
+
 ## Install a published release
 
 Download the artifact for your platform from the GitHub release. Windows releases are the raw
